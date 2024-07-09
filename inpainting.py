@@ -279,7 +279,13 @@ def parse_args():
         "--mapping_path",
         type=str,
         default="../Metadata/mapping.pkl",
-        help="If using Flair simple, need a mapping between FLAIR images names and FLAIR INC images names to get the prompts (pandas csv with columns img_id for FLAIR and file for FLAIR INC)",
+        help="If using Flair simple, need a mapping between FLAIR images names and FLAIR INC images names to get the prompts (pandas csv with columns `img_id` for FLAIR and `file` for FLAIR INC)",
+    )
+    parser.add_argument(
+        "--images_to_remove_path",
+        type=str,
+        default=None,
+        help="Path to the csv list of the filenames (into column named `file`) of the images that should not be used for training. If None, no images will be removed from training set.",
     )
     parser.add_argument(
         "--mask_before_norm",
