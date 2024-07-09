@@ -39,7 +39,7 @@ from diffusers import (
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version
 
-from pipeline_stable_diffusion_inpaint import StableDiffusionInpaintPipeline  #############################################################################
+from inpainting_pipeline import StableDiffusionInpaintPipeline  #############################################################################
 
 import cv2
 
