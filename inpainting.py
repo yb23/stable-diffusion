@@ -304,6 +304,19 @@ def parse_args():
     
     )
 
+    parser.add_argument(
+        "--prop_empty_prompt",
+        type=float,
+        default=0,
+        help="Proportion of image prompts to be replaced with empty strings. Defaults to 0 (no prompt replacement).",
+    )
+    parser.add_argument(
+        "--prop_full_mask",
+        type=float,
+        default=0,
+        help="Proportion of images to mask completely. Defaults to 0 (no prompt replacement).",
+    )
+
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
     if env_local_rank != -1 and env_local_rank != args.local_rank:
@@ -474,7 +487,6 @@ def main():
 
     train_dataset = DreamBoothDataset(
         instance_data_root=args.instance_data_dir,
-        instance_prompt=args.instance_prompt,
         class_data_root=args.class_data_dir if args.with_prior_preservation else None,
         class_prompt=args.class_prompt,
         tokenizer=tokenizer,

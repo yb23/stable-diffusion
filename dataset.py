@@ -7,6 +7,8 @@ import rasterio
 from torch.utils.data import Dataset
 from torchvision import transforms
 import cv2
+import torch.nn.functional as F
+from maskToColor import convert_to_color
 
 
 class DreamBoothDataset(Dataset):
@@ -18,15 +20,22 @@ class DreamBoothDataset(Dataset):
     def __init__(
         self,
         instance_data_root,
-        instance_prompt,
         tokenizer,
         class_data_root=None,
         class_prompt=None,
         size=512,
         center_crop=False,
         image_channels=5,
+        doOneHot=False,
+        doOneHotSimple=False,
+        num_classes=19,
+        for_controlnet=False,
         args = None,
-    ):
+    ):  
+        self.for_controlnet = for_controlnet
+        self.doOneHot = doOneHot
+        self.doOneHotSimple = doOneHotSimple
+        self.num_classes = num_classes
         self.size = size
         self.center_crop = center_crop
         self.tokenizer = tokenizer
@@ -34,6 +43,8 @@ class DreamBoothDataset(Dataset):
         self.mask_blur = args.mask_blur
         self.instance_data_root = Path(instance_data_root)
         self.mask_before_norm = args.mask_before_norm
+        self.prop_full_mask = args.prop_full_mask
+        self.prop_empty_prompt = args.prop_empty_prompt
         if not self.instance_data_root.exists():
             raise ValueError("Instance images root doesn't exists.")
         
@@ -89,6 +100,19 @@ class DreamBoothDataset(Dataset):
         print(self.val_prompts)
         print(self.val_random_prompts)
 
+        if for_controlnet:
+            self.val_labels = [flair.convert_to_color(x[0]) for x in self.val_labels]
+            self.val_random_labels = [convert_to_color(x[0]) for x in self.val_random_labels]
+            if self.doOneHotSimple:
+                self.val_OneHot = [torch.Tensor(rasterio.open(self.instance_labels_path[i]).read()[0]).to(torch.long) for i in idxs_val]
+                self.val_random_OneHot = [torch.Tensor(rasterio.open(self.instance_labels_path[i]).read()[0]).to(torch.long) for i in idxs_random_prompts]
+            elif self.doOneHot:
+                self.val_OneHot = [torch.moveaxis(F.one_hot(torch.Tensor(rasterio.open(self.instance_labels_path[i]).read()[0]-1).to(torch.long), num_classes=self.num_classes), 2,0) for i in idxs_val]
+                self.val_random_OneHot = [torch.moveaxis(F.one_hot(torch.Tensor(rasterio.open(self.instance_labels_path[i]).read()[0]-1).to(torch.long), num_classes=self.num_classes), 2,0) for i in idxs_random_prompts]
+            else:
+                self.val_OneHot = None
+                self.val_random_OneHot = None
+
 
         if class_data_root is not None:
             self.class_data_root = Path(class_data_root)
@@ -121,6 +145,16 @@ class DreamBoothDataset(Dataset):
         example = {}
         instance_image_raster = rasterio.open(self.instance_images_path[index % self.num_instance_images]).read() #Image.open(self.instance_images_path[index % self.num_instance_images])
         labels = rasterio.open(self.instance_labels_path[index % self.num_instance_images]).read()
+
+        if self.for_controlnet:
+            if self.doOneHotSimple:
+                example["instance_labels"] = torch.Tensor(labels[0]).to(torch.long)
+            elif self.doOneHot:
+                example["instance_labels"] = torch.moveaxis(F.one_hot(torch.Tensor(instance_label_raster[0]-1).to(torch.long), num_classes=self.num_classes),2,0)
+            else:
+                instance_label = np.moveaxis(convert_to_color(labels[0]),2,0)
+                example["instance_labels"] = torch.Tensor(instance_label/255.0)  ###############################################
+
         
         if self.image_channels == 3:
             instance_image_raster = instance_image_raster[:3]
@@ -131,14 +165,11 @@ class DreamBoothDataset(Dataset):
         example["PIL_images"] = instance_image_raster
         example["instance_images"] = ((instance_image / 127.5) - 1) #####################  self.image_transforms(instance_image)
         
-
-        full_mask = random.randint(1,10)<=2
+        full_mask = (self.prop_full_mask>0) and (random.random()<self.prop_full_mask)
         mask = random_mask(instance_image_raster.shape[1:], 1, full_mask)    # mask = random_mask(pil_image.size, 1, False) ##########################################
         # prepare mask and masked image
         mask, masked_image = prepare_mask_and_masked_image(instance_image_raster, mask, toTensor=True, mask_before_norm=self.mask_before_norm)
         prompt = getMaskedObjects(labels,mask.numpy()) + " " + self.instance_prompt[index % self.num_instance_images]
-
-        
         prompt = PROMPTS_START[np.random.randint(0,2)] + prompt + ", high resolution, highly detailed"
 
         if (self.mask_blur) and (np.random.randint(1,10)>=4):
@@ -146,15 +177,14 @@ class DreamBoothDataset(Dataset):
             q = np.random.randint(1,40)
             mask_blur = torch.Tensor(cv2.GaussianBlur(mask.numpy().astype(float), (ker,ker), q)).to(torch.float32)
             example["mask"] = mask_blur
-            if self.mask_before_norm:
-                example["masked_image"] = (mask_blur * torch.from_numpy(instance_image_raster).to(dtype=torch.float32)) / 127.5 - 1.0
-            else:
-                example["masked_image"] = mask_blur * (torch.from_numpy(instance_image_raster).to(dtype=torch.float32) / 127.5 - 1.0)
         else:
             example["mask"] = mask  
             example["masked_image"] = masked_image 
-        
-        example["prompt"] = prompt
+
+        if (self.prop_empty_prompt>0) and (random.random()<self.prop_empty_prompt):
+            example["prompt"] = ""
+        else:
+            example["prompt"] = prompt
         example["instance_prompt_ids"] = self.tokenizer(
             prompt,
             padding="do_not_pad",
