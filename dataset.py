@@ -58,7 +58,7 @@ class DreamBoothDataset(Dataset):
             self.image_ids = [mapping.get(x,0) for x in self.image_ids]
         else:
             #prompts_path = "/gpfswork/rech/jrj/commun/FLAIR1/OCS_BigPrompts2.csv"
-            self.instance_images_path = glob.glob(instance_data_root+"/**/*-RVBIE.tif.tif", recursive=True)
+            self.instance_images_path = glob.glob(instance_data_root+"/**/*-RVBIE.tif", recursive=True)
             if args.images_to_remove_path is not None:
                 df = pd.read_csv(args.images_to_remove_path, index_col=0)
                 toRemove = set(df["file"])
